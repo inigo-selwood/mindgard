@@ -27,3 +27,71 @@ jobs:
           -p $client_secret \
           --tenant $tenant_id
     
+    - name: Train altered models
+      run: |
+
+        # Get names of files which have changed in the last commit
+        BASE_COMMIT_SHA="origin/master"
+        altered_files=$(git diff --name-only $BASE_COMMIT_SHA)
+
+        # Get the names of the model folders which have seen changes 
+        model_folders=$(echo "$altered_files" | \
+          grep '^models/' | \
+          cut -d/ -f2 | \
+          sort -u)
+
+        # For each altered model
+        for folder in $model_folders; do
+
+          # Ensure job configuration file exists
+          job_file=models/${folder}/azure/configuration.yaml
+          if [[ ! -f $job_file ]]; then
+            echo "expected configuration file $job_file"
+            exit 1
+          fi
+
+          # Create and run the job using specified configuration file
+          run_id=$(az ml job create \
+            -f $job_file \
+            --query name \
+            -o tsv \
+            --set settings.force_rerun=True)
+
+          # Check if the run ID is empty, indicating a failure in job creation
+          if [[ -z "$run_id" ]]; then
+            echo "Job creation failed"
+            exit 3
+          fi
+
+          # Query and store the status of the job using its run ID
+          status=$(az ml job show -n $run_id --query status -o tsv)
+          if [[ -z "$status" ]]; then
+            echo "Status query failed"
+            exit 4
+          fi
+
+          # Loop to wait for the job to complete
+          running=("Queued" \
+            "NotStarted" \
+            "Starting" \
+            "Preparing" \
+            "Running" \
+            "Finalizing")
+          while [[ ${running[*]} =~ $status ]]; do
+            sleep 10
+            status=$(az ml job show -n $run_id --query status -o tsv)
+            echo $status
+          done
+
+          # Check the final status and exit with the appropriate code
+          if [[ $status == "Completed" ]]; then
+            echo "Job completed"
+          elif [[ $status == "Failed" ]]; then
+            echo "Job failed"
+            exit 1
+          else
+            echo "Job not completed or failed. Status is $status"
+            exit 2
+          fi
+        done
+    
