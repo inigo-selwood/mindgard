@@ -5,6 +5,11 @@ on:
     branches:
     - master
 
+env:
+  client_id: ${{ secrets.client_id }}
+  tenant_id: ${{ secrets.tenant_id }}
+  client_secret: ${{ secrets.client_secret }}
+
 jobs:
 
   deploy:
