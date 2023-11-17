@@ -1,0 +1,59 @@
+$schema: https://azuremlschemas.azureedge.net/latest/pipelineJob.schema.json
+type: pipeline
+
+display_name: MNIST CNN
+
+settings:
+  default_compute: azureml:cpu-cluster
+
+outputs:
+  model:
+    type: uri_file
+    name: mnist_cnn_model
+    version: '1'
+
+jobs:
+
+  # Load MNIST dataset
+  load:
+    display_name: Load
+    code: ../source
+    environment: azureml:AzureML-pytorch-1.10-ubuntu18.04-py38-cuda11-gpu@latest
+    outputs:
+      data:
+        mode: rw_mount
+    command: |
+      python main.py load --output-folder ${{ outputs.data }}
+  
+  # Train CNN
+  train:
+    display_name: Train
+    code: ../source
+    environment: azureml:AzureML-pytorch-1.10-ubuntu18.04-py38-cuda11-gpu@latest
+    inputs:
+      data: 
+        type: uri_folder
+        path: ${{ parent.jobs.load.outputs.data }}
+    outputs:
+      model: ${{ parent.outputs.model }}
+    command: |
+      python main.py train \
+        --data-folder ${{ inputs.data }} \
+        --output-path ${{ outputs.model }}
+  
+  # Evaluate model
+  evaluate:
+    display_name: Evaluate
+    code: ../source
+    environment: azureml:AzureML-pytorch-1.10-ubuntu18.04-py38-cuda11-gpu@latest
+    inputs:
+      data: 
+        type: uri_folder
+        path: ${{ parent.jobs.load.outputs.data }}
+      model: 
+        type: uri_file
+        path: ${{ parent.jobs.train.outputs.model }}
+    command: |
+      python main.py evaluate \
+        --data-folder ${{ inputs.data }} \
+        --model-path ${{ inputs.model }}
